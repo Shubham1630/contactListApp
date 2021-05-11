@@ -1,12 +1,19 @@
 
 
+import 'package:contacts_service/contacts_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_contact_list_app/Modal/contacts.dart';
+import 'package:flutter_contact_list_app/storage_helper.dart';
 import 'package:permission_handler/permission_handler.dart';
+
+import 'addContactPage.dart';
+
+
 
 void main() {
   runApp(MyApp());
 }
-
+const iOSLocalizedLabels = false;
 class MyApp extends StatelessWidget {
 
 
@@ -35,6 +42,8 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  List<Contact> _contacts;
+  List<ContactSaved> fromDatabase = [];
 
   @override
   void initState() {
@@ -44,9 +53,7 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _askPermissions() async {
     PermissionStatus permissionStatus = await _getContactPermission();
     if (permissionStatus == PermissionStatus.granted) {
-      // if (routeName != null) {
-      //   // Navigator.of(context).pushNamed(routeName);
-      // }
+    refreshContacts();
     } else {
       _handleInvalidPermissions(permissionStatus);
     }
@@ -74,7 +81,33 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  Future<void> refreshContacts() async {
+    // Load without thumbnails initially.
+    var contacts = (await ContactsService.getContacts(
+        withThumbnails: false, iOSLocalizedLabels: iOSLocalizedLabels))
+        .toList();
 
+    setState(() {
+      _contacts = contacts;
+    });
+    List<ContactSaved> savedContact = [];
+    // Lazy load thumbnails after rendering initial contacts.
+    for (final contact in contacts) {
+      if(contact.displayName != null) {
+        ContactSaved contactSaved = new ContactSaved(contact.displayName);
+        savedContact.add(contactSaved);
+
+      saveContactInPreference(savedContact);}
+      ContactsService.getAvatar(contact).then((avatar) async {
+        if (avatar == null) return; // Don't redraw if no change.
+         // getContactFromDataBase();
+        setState(() => contact.avatar = avatar);
+
+      });
+getContactFromDataBase();
+    }
+
+  }
   @override
   Widget build(BuildContext context) {
 
@@ -83,25 +116,61 @@ class _MyHomePageState extends State<MyHomePage> {
 
         title: Text(widget.title),
       ),
-      body: Center(
+      body: SafeArea(
+        child: _contacts != null
+            ? ListView.builder(
+          itemCount: _contacts?.length ?? 0,
+          itemBuilder: (BuildContext context, int index) {
+            Contact c = _contacts?.elementAt(index);
+            return Dismissible(
 
-        child: Column(
+              key: ObjectKey(_contacts[index]),
+       onDismissed: (direction){
+        deleteContact(index);
+             _contacts.removeAt(index);
+           setState(() {
 
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Text(
-              'You have pushed the button this many times:',
-            ),
+                });
+},
+              child: ListTile(
 
-          ],
+                leading: (c.avatar != null && c.avatar.length > 0)
+                    ? CircleAvatar(backgroundImage: MemoryImage(c.avatar))
+                    : CircleAvatar(child: Text(c.initials())),
+                title: Text(c.displayName ?? ""),
+              ),
+            );
+          },
+        )
+            : Center(
+          child: CircularProgressIndicator(),
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: (){},
+        onPressed: (){
+          Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => AddContactPage())
+          ).then((value) => refreshContacts());
+        },
         tooltip: 'Increment',
         child: Icon(Icons.add),
       ), // This trailing comma makes auto-formatting nicer for build methods.
     );
+  }
+
+  Future<void> deleteContact(int index) async {
+    await ContactsService.deleteContact(_contacts[index]);
+
+  }
+
+  void saveContactInPreference(List<ContactSaved> contactSaved) {
+    StorageHelper.save(StorageHelper.KEY, contactSaved);
+  }
+ 
+  Future<void> getContactFromDataBase() async {
+    fromDatabase = await StorageHelper.read(StorageHelper.KEY);
+    print(fromDatabase.length);
   }
 
 
